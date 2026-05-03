@@ -25,7 +25,7 @@ export const TEAMS: Team[] = [
   },
   {
     id: 'brujos',
-    name: 'Brujos',
+    name: 'Magos',
     emoji: '🧙‍♂️',
     color: '#EA580C',
     textColor: '#FFFFFF',
