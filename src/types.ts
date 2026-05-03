@@ -16,6 +16,7 @@ export interface Player {
   teamId: TeamId;
   name: string;
   number: number;      // jersey
+  photoUrl?: string;   // base64 data URL (~256x256 jpg) or external URL
 }
 
 export interface Venue {

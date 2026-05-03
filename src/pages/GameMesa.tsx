@@ -176,12 +176,23 @@ export default function GameMesa() {
                 <button
                   key={p.id}
                   onClick={() => setSelectedPlayer(p.id)}
-                  className={`relative p-3 rounded-lg border-2 ${
+                  className={`relative p-3 rounded-lg border-2 flex flex-col items-center ${
                     selectedPlayer === p.id ? 'bg-pmbo-primary text-white border-pmbo-primary' : 'bg-white'
                   }`}
                 >
-                  <div className="text-2xl font-bold">#{p.number}</div>
-                  <div className="text-xs truncate">{p.name}</div>
+                  {p.photoUrl ? (
+                    <img
+                      src={p.photoUrl}
+                      alt={p.name}
+                      className="w-12 h-12 rounded-full object-cover border mb-1"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-600 mb-1">
+                      #{p.number}
+                    </div>
+                  )}
+                  <div className="text-lg font-bold leading-none">#{p.number}</div>
+                  <div className="text-xs truncate w-full text-center">{p.name}</div>
                   {onCourt && (
                     <span className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full" title="En cancha" />
                   )}

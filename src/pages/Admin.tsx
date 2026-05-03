@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
 import { Link, Navigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TEAMS, TEAMS_BY_ID } from '../data/teams';
 import type { Game, Player, TeamId, Venue } from '../types';
+import { fileToResizedDataUrl } from '../utils/image';
 
 export default function Admin() {
   const { user, loading } = useAuth();
@@ -46,6 +47,9 @@ function PlayersAdmin() {
   const [name, setName] = useState('');
   const [number, setNumber] = useState<number | ''>('');
   const [teamId, setTeamId] = useState<TeamId>('leneros');
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return onSnapshot(collection(db, 'players'), (snap) =>
@@ -53,11 +57,49 @@ function PlayersAdmin() {
     );
   }, []);
 
+  const onPickPhoto = async (file: File | null) => {
+    if (!file) { setPhotoPreview(null); return; }
+    try {
+      const dataUrl = await fileToResizedDataUrl(file);
+      setPhotoPreview(dataUrl);
+    } catch (err) {
+      console.error(err);
+      alert('No pude procesar la foto. Intenta otra.');
+    }
+  };
+
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || number === '') return;
-    await addDoc(collection(db, 'players'), { name: name.trim(), number: Number(number), teamId });
-    setName(''); setNumber('');
+    setBusy(true);
+    try {
+      const data: Omit<Player, 'id'> = {
+        name: name.trim(),
+        number: Number(number),
+        teamId,
+        ...(photoPreview ? { photoUrl: photoPreview } : {}),
+      };
+      await addDoc(collection(db, 'players'), data);
+      setName(''); setNumber(''); setPhotoPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const replacePhoto = async (player: Player, file: File) => {
+    try {
+      const dataUrl = await fileToResizedDataUrl(file);
+      await updateDoc(doc(db, 'players', player.id), { photoUrl: dataUrl });
+    } catch (err) {
+      console.error(err);
+      alert('No pude actualizar la foto.');
+    }
+  };
+
+  const removePhoto = async (player: Player) => {
+    if (!confirm(`¿Quitar foto de ${player.name}?`)) return;
+    await updateDoc(doc(db, 'players', player.id), { photoUrl: '' });
   };
 
   const remove = async (id: string) => {
@@ -91,7 +133,26 @@ function PlayersAdmin() {
         >
           {TEAMS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
-        <button type="submit" className="btn-primary">Añadir</button>
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? '...' : 'Añadir'}
+        </button>
+        <div className="sm:col-span-4 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Foto (opcional):</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={e => onPickPhoto(e.target.files?.[0] ?? null)}
+            className="text-sm"
+          />
+          {photoPreview && (
+            <img
+              src={photoPreview}
+              alt="preview"
+              className="w-12 h-12 rounded-full object-cover border"
+            />
+          )}
+        </div>
       </form>
       <div className="space-y-2">
         {TEAMS.map(t => {
@@ -101,14 +162,39 @@ function PlayersAdmin() {
               <h3 className="font-bold mb-2">{t.emoji} {t.name} ({teamPlayers.length})</h3>
               <ul className="text-sm divide-y">
                 {teamPlayers.map(p => (
-                  <li key={p.id} className="flex justify-between py-1">
-                    <span>#{p.number} — {p.name}</span>
-                    <button
-                      onClick={() => remove(p.id)}
-                      className="text-red-500 text-xs hover:underline"
-                    >
-                      eliminar
-                    </button>
+                  <li key={p.id} className="flex items-center justify-between py-2 gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {p.photoUrl ? (
+                        <img src={p.photoUrl} alt={p.name} className="w-10 h-10 rounded-full object-cover border" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-500">—</div>
+                      )}
+                      <span className="truncate">#{p.number} — {p.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <label className="text-xs text-blue-600 hover:underline cursor-pointer">
+                        {p.photoUrl ? 'cambiar foto' : 'subir foto'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (f) replacePhoto(p, f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {p.photoUrl && (
+                        <button onClick={() => removePhoto(p)} className="text-xs text-gray-500 hover:underline">quitar</button>
+                      )}
+                      <button
+                        onClick={() => remove(p.id)}
+                        className="text-red-500 text-xs hover:underline"
+                      >
+                        eliminar
+                      </button>
+                    </div>
                   </li>
                 ))}
                 {teamPlayers.length === 0 && (

@@ -62,6 +62,7 @@ export default function Team() {
           <table className="w-full text-sm">
             <thead className="bg-gray-100 text-left">
               <tr>
+                <th className="p-2"></th>
                 <th className="p-2">#</th>
                 <th className="p-2">Jugador</th>
                 <th className="p-2">PJ</th>
@@ -76,6 +77,13 @@ export default function Team() {
             <tbody>
               {totals.map(p => (
                 <tr key={p.id} className="border-t hover:bg-gray-50">
+                  <td className="p-2">
+                    {p.photoUrl ? (
+                      <img src={p.photoUrl} alt={p.name} className="w-9 h-9 rounded-full object-cover border" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-[10px] text-gray-500">{p.number}</div>
+                    )}
+                  </td>
                   <td className="p-2 font-bold">{p.number}</td>
                   <td className="p-2">{p.name}</td>
                   <td className="p-2">{p.games}</td>
