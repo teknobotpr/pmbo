@@ -97,10 +97,10 @@ Todos pueden ver: equipos, calendario, líderes, stats acumulados, partidos en v
 |---|---|
 | 🪵 Leñeros | Amarillo |
 | 🤿 Buzos | Azul |
-| 🧙‍♂️ Brujos | Naranja |
-| 🥷 Asesinos | Negro |
-| 😇 Ángeles | Amarillo + Azul marino |
-| 😈 Villanos | Rojo |
+| 🧙‍♂️ Magos | Verde |
+| 🥷 Asesinos | Rojo |
+| 😇 Ángeles | Negro |
+| 😈 Villanos | Violeta |
 
 ## 📁 Estructura
 
