@@ -56,7 +56,7 @@ export default function Home() {
       </section>
 
       <section className="text-center pt-6 border-t border-gray-200">
-        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">Patrocinado por</p>
+        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">Patrocinado por Teknobot 787-974-1793</p>
         <a
           href="https://teknobotpr.com"
           target="_blank"
