@@ -54,6 +54,22 @@ export default function Home() {
           <p className="text-xs text-gray-500">Rosters y stats</p>
         </Link>
       </section>
+
+      <section className="text-center pt-6 border-t border-gray-200">
+        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">Patrocinado por</p>
+        <a
+          href="https://teknobotpr.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block hover:opacity-80 transition-opacity"
+        >
+          <img
+            src={`${import.meta.env.BASE_URL}logo.jpg`}
+            alt="Teknobot"
+            className="h-24 w-auto mx-auto"
+          />
+        </a>
+      </section>
     </div>
   );
 }
