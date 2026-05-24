@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from 'firebase/firestore';
 import { Link, Navigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TEAMS, TEAMS_BY_ID } from '../data/teams';
-import type { Game, Player, TeamId, Venue } from '../types';
+import type { Game, Player, PlayerGameStats, TeamId, Venue } from '../types';
 import { fileToResizedDataUrl } from '../utils/image';
 
 export default function Admin() {
   const { user, loading } = useAuth();
-  const [tab, setTab] = useState<'players' | 'venues' | 'games'>('games');
+  const [tab, setTab] = useState<'players' | 'venues' | 'games' | 'audit'>('games');
 
   if (loading) return <div>Cargando...</div>;
   if (!user) return <Navigate to="/login" replace />;
@@ -21,10 +21,12 @@ export default function Admin() {
         <TabBtn active={tab === 'games'} onClick={() => setTab('games')} label="Partidos" />
         <TabBtn active={tab === 'players'} onClick={() => setTab('players')} label="Jugadores" />
         <TabBtn active={tab === 'venues'} onClick={() => setTab('venues')} label="Canchas" />
+        <TabBtn active={tab === 'audit'} onClick={() => setTab('audit')} label="Auditoría" />
       </div>
       {tab === 'games' && <GamesAdmin />}
       {tab === 'players' && <PlayersAdmin />}
       {tab === 'venues' && <VenuesAdmin />}
+      {tab === 'audit' && <AuditAdmin />}
     </div>
   );
 }
@@ -359,6 +361,279 @@ function GamesAdmin() {
         })}
         {games.length === 0 && <p className="text-gray-500 text-sm">No hay partidos programados.</p>}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AuditAdmin — detects and fixes data integrity issues in player stats / scores
+// ============================================================================
+
+interface NegativeStat {
+  statRow: PlayerGameStats;
+  player: Player | undefined;
+  fields: { key: keyof PlayerGameStats; value: number }[]; // which fields are negative
+}
+
+interface GameDrift {
+  game: Game;
+  homeSum: number;
+  awaySum: number;
+}
+
+function AuditAdmin() {
+  const [games, setGames] = useState<Game[]>([]);
+  const [stats, setStats] = useState<PlayerGameStats[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db, 'games'), s =>
+      setGames(s.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Game, 'id'>) })))
+    );
+    const u2 = onSnapshot(collection(db, 'playerGameStats'), s =>
+      setStats(s.docs.map(d => ({ id: d.id, ...(d.data() as Omit<PlayerGameStats, 'id'>) })))
+    );
+    const u3 = onSnapshot(collection(db, 'players'), s =>
+      setPlayers(s.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Player, 'id'>) })))
+    );
+    return () => { u1(); u2(); u3(); };
+  }, []);
+
+  const playerById = useMemo(
+    () => Object.fromEntries(players.map(p => [p.id, p])),
+    [players]
+  );
+
+  // Find any negative stat fields across all playerGameStats
+  const negatives: NegativeStat[] = useMemo(() => {
+    const out: NegativeStat[] = [];
+    const numericFields: (keyof PlayerGameStats)[] = [
+      'points', 'assists', 'rebounds', 'blocks', 'steals', 'minutesPlayed', 'threesMade',
+    ];
+    for (const s of stats) {
+      const fields: { key: keyof PlayerGameStats; value: number }[] = [];
+      for (const f of numericFields) {
+        const v = (s[f] as number) || 0;
+        if (v < 0) fields.push({ key: f, value: v });
+      }
+      if (fields.length > 0) {
+        out.push({ statRow: s, player: playerById[s.playerId], fields });
+      }
+    }
+    return out;
+  }, [stats, playerById]);
+
+  // For each finished game, compare game.homeScore/awayScore with sum of player points
+  const drifts: GameDrift[] = useMemo(() => {
+    const out: GameDrift[] = [];
+    for (const g of games) {
+      if (g.status !== 'finished') continue;
+      const gameStats = stats.filter(s => s.gameId === g.id);
+      const homeSum = gameStats
+        .filter(s => s.teamId === g.homeTeamId)
+        .reduce((a, s) => a + ((s.points as number) || 0), 0);
+      const awaySum = gameStats
+        .filter(s => s.teamId === g.awayTeamId)
+        .reduce((a, s) => a + ((s.points as number) || 0), 0);
+      if (homeSum !== g.homeScore || awaySum !== g.awayScore) {
+        out.push({ game: g, homeSum, awaySum });
+      }
+    }
+    return out;
+  }, [games, stats]);
+
+  // Fix: clamp a single stat row's negative fields to 0
+  // Also subtract the clamped delta from the team score if it was the points field
+  // (because the negative was wrongly counted against the team score already)
+  const fixNegative = async (item: NegativeStat) => {
+    if (!item.statRow) return;
+    if (busy) return;
+    if (!confirm(`Corregir stats negativas de ${item.player?.name || item.statRow.playerId}?`)) return;
+
+    setBusy(item.statRow.id);
+    try {
+      const update: Partial<PlayerGameStats> = {};
+      for (const f of item.fields) {
+        // @ts-expect-error key indexing
+        update[f.key] = 0;
+      }
+      await updateDoc(doc(db, 'playerGameStats', item.statRow.id), update);
+      alert(`Corregido: ${item.fields.map(f => `${String(f.key)} ${f.value} → 0`).join(', ')}`);
+    } catch (e) {
+      alert('Error: ' + (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Fix drift: align game.homeScore/awayScore to the sum of player points
+  // (player stats are treated as the granular source of truth)
+  const reconcileGameToPlayers = async (d: GameDrift) => {
+    if (busy) return;
+    if (!confirm(
+      `Reconciliar el score del partido ${d.game.id.slice(0, 8)}…?\n\n` +
+      `Cambios:\n` +
+      `  homeScore: ${d.game.homeScore} → ${d.homeSum}\n` +
+      `  awayScore: ${d.game.awayScore} → ${d.awaySum}\n\n` +
+      `Esto trata los puntos por jugador como la verdad granular.`
+    )) return;
+    setBusy(d.game.id);
+    try {
+      await updateDoc(doc(db, 'games', d.game.id), {
+        homeScore: d.homeSum,
+        awayScore: d.awaySum,
+      });
+      alert('Score del partido reconciliado.');
+    } catch (e) {
+      alert('Error: ' + (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Fix all negatives in one batch
+  const fixAllNegatives = async () => {
+    if (busy) return;
+    if (negatives.length === 0) return;
+    if (!confirm(`Corregir ${negatives.length} jugador(es) con stats negativas a 0?`)) return;
+    setBusy('all-negatives');
+    try {
+      const batch = writeBatch(db);
+      for (const item of negatives) {
+        const update: Partial<PlayerGameStats> = {};
+        for (const f of item.fields) {
+          // @ts-expect-error key indexing
+          update[f.key] = 0;
+        }
+        batch.update(doc(db, 'playerGameStats', item.statRow.id), update);
+      }
+      await batch.commit();
+      alert(`Corregidos ${negatives.length} registros.`);
+    } catch (e) {
+      alert('Error: ' + (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Negative stats section */}
+      <section className="card">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold">🚫 Stats negativas</h2>
+          {negatives.length > 0 && (
+            <button
+              onClick={fixAllNegatives}
+              disabled={busy !== null}
+              className="btn-primary text-sm"
+            >
+              Corregir todas a 0
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Stats por jugador con valor menor a cero. Causa típica: bug viejo del
+          botón "Deshacer". Corregir a 0 es seguro.
+        </p>
+        {negatives.length === 0 ? (
+          <p className="text-sm text-green-700 mt-3">✅ No hay stats negativas.</p>
+        ) : (
+          <ul className="mt-3 space-y-2 text-sm">
+            {negatives.map(item => (
+              <li
+                key={item.statRow.id}
+                className="border border-amber-200 bg-amber-50 rounded p-2 flex items-center justify-between gap-2"
+              >
+                <div>
+                  <div className="font-medium">
+                    {item.player
+                      ? `#${item.player.number} ${item.player.name}`
+                      : `Jugador desconocido (${item.statRow.playerId})`}
+                    {' '}
+                    <span className="text-xs text-gray-500">
+                      ({TEAMS_BY_ID[item.statRow.teamId]?.name})
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-600 font-mono">
+                    Partido {item.statRow.gameId.slice(0, 8)}… ·{' '}
+                    {item.fields.map(f => `${String(f.key)}=${f.value}`).join(', ')}
+                  </div>
+                </div>
+                <button
+                  onClick={() => fixNegative(item)}
+                  disabled={busy !== null}
+                  className="btn-secondary text-xs whitespace-nowrap"
+                >
+                  Corregir a 0
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Score drift section */}
+      <section className="card">
+        <h2 className="font-bold">⚖️ Discrepancias de score</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          Partidos finalizados donde el score del juego (mostrado en el marcador)
+          no coincide con la suma de puntos por jugador. Reconciliar fija el
+          score del partido al total granular.
+        </p>
+        {drifts.length === 0 ? (
+          <p className="text-sm text-green-700 mt-3">✅ Todos los scores cuadran.</p>
+        ) : (
+          <ul className="mt-3 space-y-2 text-sm">
+            {drifts.map(d => {
+              const home = TEAMS_BY_ID[d.game.homeTeamId];
+              const away = TEAMS_BY_ID[d.game.awayTeamId];
+              const homeOk = d.homeSum === d.game.homeScore;
+              const awayOk = d.awaySum === d.game.awayScore;
+              return (
+                <li
+                  key={d.game.id}
+                  className="border border-amber-200 bg-amber-50 rounded p-2"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="font-medium">
+                      {home?.emoji} {home?.name} vs {away?.name} {away?.emoji}
+                    </div>
+                    <button
+                      onClick={() => reconcileGameToPlayers(d)}
+                      disabled={busy !== null}
+                      className="btn-secondary text-xs whitespace-nowrap"
+                    >
+                      Reconciliar
+                    </button>
+                  </div>
+                  <div className="text-xs text-gray-600 font-mono space-y-0.5">
+                    <div>
+                      {home?.name}: marcador=<strong>{d.game.homeScore}</strong>{' '}
+                      vs suma jugadores=<strong>{d.homeSum}</strong>{' '}
+                      {homeOk ? '✅' : `(diff ${d.homeSum - d.game.homeScore})`}
+                    </div>
+                    <div>
+                      {away?.name}: marcador=<strong>{d.game.awayScore}</strong>{' '}
+                      vs suma jugadores=<strong>{d.awaySum}</strong>{' '}
+                      {awayOk ? '✅' : `(diff ${d.awaySum - d.game.awayScore})`}
+                    </div>
+                    <div className="pt-1">
+                      Partido: <Link className="underline" to={`/partido/${d.game.id}`}>{d.game.id}</Link>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <p className="text-xs text-gray-400">
+        Tip: corrige primero las stats negativas. Eso suele resolver parte de las
+        discrepancias de score. Después reconcilia los partidos que sigan con drift.
+      </p>
     </div>
   );
 }
