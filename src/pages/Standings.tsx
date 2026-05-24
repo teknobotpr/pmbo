@@ -3,7 +3,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { TEAMS, TEAMS_BY_ID } from '../data/teams';
-import type { Game, TeamId } from '../types';
+import type { Game, PlayerGameStats, TeamId } from '../types';
 
 interface StandingRow {
   teamId: TeamId;
@@ -16,14 +16,27 @@ interface StandingRow {
   pct: number;             // wins / played
 }
 
+interface IntegrityIssue {
+  gameId: string;
+  teamId: TeamId;
+  side: 'home' | 'away';
+  gameScore: number;     // game.homeScore / awayScore
+  playerSum: number;     // sum of playerGameStats.points for that team in that game
+  diff: number;          // playerSum - gameScore
+}
+
 export default function Standings() {
   const [games, setGames] = useState<Game[]>([]);
+  const [stats, setStats] = useState<PlayerGameStats[]>([]);
 
   useEffect(() => {
-    const u = onSnapshot(collection(db, 'games'), snap =>
+    const u1 = onSnapshot(collection(db, 'games'), snap =>
       setGames(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Game, 'id'>) })))
     );
-    return () => u();
+    const u2 = onSnapshot(collection(db, 'playerGameStats'), snap =>
+      setStats(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<PlayerGameStats, 'id'>) })))
+    );
+    return () => { u1(); u2(); };
   }, []);
 
   const rows: StandingRow[] = useMemo(() => {
@@ -82,6 +95,45 @@ export default function Standings() {
   }, [games]);
 
   const anyPlayed = rows.some(r => r.played > 0);
+
+  // Integrity check: for every finished game, the team score on the game doc
+  // should equal the sum of player points (playerGameStats.points) for that
+  // team in that game. If they drift, something was logged inconsistently
+  // (e.g. manual override, partial failure before batching was added).
+  const integrityIssues: IntegrityIssue[] = useMemo(() => {
+    const issues: IntegrityIssue[] = [];
+    for (const g of games) {
+      if (g.status !== 'finished') continue;
+      const gameStats = stats.filter(s => s.gameId === g.id);
+      const homeSum = gameStats
+        .filter(s => s.teamId === g.homeTeamId)
+        .reduce((a, s) => a + (s.points || 0), 0);
+      const awaySum = gameStats
+        .filter(s => s.teamId === g.awayTeamId)
+        .reduce((a, s) => a + (s.points || 0), 0);
+      if (homeSum !== g.homeScore) {
+        issues.push({
+          gameId: g.id,
+          teamId: g.homeTeamId,
+          side: 'home',
+          gameScore: g.homeScore,
+          playerSum: homeSum,
+          diff: homeSum - g.homeScore,
+        });
+      }
+      if (awaySum !== g.awayScore) {
+        issues.push({
+          gameId: g.id,
+          teamId: g.awayTeamId,
+          side: 'away',
+          gameScore: g.awayScore,
+          playerSum: awaySum,
+          diff: awaySum - g.awayScore,
+        });
+      }
+    }
+    return issues;
+  }, [games, stats]);
 
   return (
     <div className="space-y-4">
@@ -226,6 +278,35 @@ export default function Standings() {
       <p className="text-xs text-gray-400 pt-2">
         Ordenado por: ganados → diferencial → puntos a favor.
       </p>
+
+      {/* Integrity check — only visible when drift is detected */}
+      {integrityIssues.length > 0 && (
+        <details className="card bg-amber-50 border border-amber-200">
+          <summary className="cursor-pointer font-semibold text-amber-800">
+            ⚠️ Auditoría: {integrityIssues.length} discrepancia(s) detectada(s)
+          </summary>
+          <p className="text-xs text-amber-700 mt-2">
+            El score del equipo en el partido no coincide con la suma de puntos
+            registrados por jugador. Esto suele pasar cuando se editó un score
+            manualmente o si hubo una conexión inestable antes del fix de
+            consistencia. Revisa cada partido:
+          </p>
+          <ul className="text-xs mt-2 space-y-1">
+            {integrityIssues.map((iss, i) => {
+              const t = TEAMS_BY_ID[iss.teamId];
+              return (
+                <li key={i} className="font-mono">
+                  Partido <Link to={`/partido/${iss.gameId}`} className="underline">{iss.gameId.slice(0, 8)}…</Link>{' '}
+                  · {t.emoji} {t.name} ({iss.side}) —
+                  score del juego: <strong>{iss.gameScore}</strong>,
+                  suma por jugador: <strong>{iss.playerSum}</strong>
+                  {' '}(diff {iss.diff > 0 ? `+${iss.diff}` : iss.diff})
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

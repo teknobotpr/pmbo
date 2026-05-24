@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import {
-  collection, doc, onSnapshot, query, setDoc, updateDoc, where, increment, serverTimestamp
+  collection, doc, onSnapshot, query, setDoc, updateDoc, where, increment, serverTimestamp, writeBatch, getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,19 +52,27 @@ export default function GameMesa() {
   };
 
   // Add stat for selected player
+  // Uses a Firestore batch so the player stat increment and the team-score
+  // increment succeed (or fail) atomically — guarantees standings stay in sync
+  // with the sum of per-player points.
   const bumpStat = async (statKey: StatKey, amount: number = 1) => {
     if (!selectedPlayer || !selectedTeam) return;
     const player = players.find(p => p.id === selectedPlayer);
     if (!player) return;
 
     const statsId = `${gameId}_${selectedPlayer}`;
-    const ref = doc(db, 'playerGameStats', statsId);
+    const statRef = doc(db, 'playerGameStats', statsId);
+    const gameRef = doc(db, 'games', gameId);
 
-    // Try to increment, fallback to setDoc if doc doesn't exist
-    try {
-      await updateDoc(ref, { [statKey]: increment(amount) });
-    } catch {
-      await setDoc(ref, {
+    // Check if the stats doc already exists so we know whether to setDoc or update
+    const existing = await getDoc(statRef);
+
+    const batch = writeBatch(db);
+
+    if (existing.exists()) {
+      batch.update(statRef, { [statKey]: increment(amount) });
+    } else {
+      batch.set(statRef, {
         gameId,
         playerId: selectedPlayer,
         teamId: selectedTeam,
@@ -73,11 +81,13 @@ export default function GameMesa() {
       });
     }
 
-    // Update game score for points
+    // Update game score for points — same batch so it cannot drift
     if (statKey === 'points') {
       const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
-      await updateDoc(doc(db, 'games', gameId), { [scoreField]: increment(amount) });
+      batch.update(gameRef, { [scoreField]: increment(amount) });
     }
+
+    await batch.commit();
   };
 
   // Toggle player on court (start/stop minutes)
