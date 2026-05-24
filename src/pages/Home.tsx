@@ -61,19 +61,37 @@ export default function Home() {
       </section>
 
       <section className="text-center pt-6 border-t border-gray-200">
-        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">Patrocinado por Teknobot 787-974-1793</p>
-        <a
-          href="https://facebook.com/teknobotpr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-block hover:opacity-80 transition-opacity"
-        >
-          <img
-            src={`${import.meta.env.BASE_URL}logo.jpg`}
-            alt="Teknobot"
-            className="h-24 w-auto mx-auto"
-          />
-        </a>
+        <p className="text-xs uppercase tracking-wider text-gray-500 mb-4">
+          Patrocinadores
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
+          <a
+            href="https://facebook.com/teknobotpr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center hover:opacity-80 transition-opacity"
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}logo.jpg`}
+              alt="Teknobot"
+              className="h-24 w-auto"
+            />
+            <span className="text-xs text-gray-500 mt-1">Teknobot · 787-974-1793</span>
+          </a>
+          <a
+            href="https://www.facebook.com/elfrappeno"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center hover:opacity-80 transition-opacity"
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}sponsor-frappeno.jpg`}
+              alt="El Frappeño y Algo Más"
+              className="h-24 w-24 object-cover rounded-full"
+            />
+            <span className="text-xs text-gray-500 mt-1">El Frappeño y Algo Más</span>
+          </a>
+        </div>
       </section>
     </div>
   );
