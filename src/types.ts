@@ -51,6 +51,7 @@ export interface PlayerGameStats {
   blocks: number;
   steals: number;
   minutesPlayed: number;
+  threesMade?: number; // triples convertidos (3pt shots). Optional for backward-compat with old docs.
 }
 
 export interface UserProfile {

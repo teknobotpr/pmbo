@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { TEAMS_BY_ID } from '../data/teams';
 import type { Game, Player, PlayerGameStats, TeamId } from '../types';
 
-type StatKey = 'points' | 'assists' | 'rebounds' | 'blocks' | 'steals';
+type StatKey = 'points' | 'assists' | 'rebounds' | 'blocks' | 'steals' | 'threesMade';
 
 export default function GameMesa() {
   const { gameId } = useParams<{ gameId: string }>();
@@ -91,7 +91,7 @@ export default function GameMesa() {
         gameId,
         playerId: selectedPlayer,
         teamId: selectedTeam,
-        points: 0, assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0,
+        points: 0, assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0, threesMade: 0,
         [statKey]: effectiveAmount,
       });
     }
@@ -102,6 +102,55 @@ export default function GameMesa() {
       const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
       batch.update(gameRef, { [scoreField]: increment(effectiveAmount) });
     }
+
+    await batch.commit();
+  };
+
+  // Special helper for 3-point shots: increments points by ±3 AND threesMade by ±1 atomically.
+  // Also bumps the team score field on the game doc. All in one batch — no drift possible.
+  const bumpThreePointer = async (sign: 1 | -1) => {
+    if (!selectedPlayer || !selectedTeam) return;
+    const statsId = `${gameId}_${selectedPlayer}`;
+    const statRef = doc(db, 'playerGameStats', statsId);
+    const gameRef = doc(db, 'games', gameId);
+
+    const existing = await getDoc(statRef);
+
+    // Clamp negative undo — don't go below zero on either field
+    let pointDelta = sign * 3;
+    let threesDelta = sign * 1;
+    if (sign < 0) {
+      const curPoints = existing.exists() ? (existing.data().points as number) || 0 : 0;
+      const curThrees = existing.exists() ? (existing.data().threesMade as number) || 0 : 0;
+      if (curThrees <= 0 || curPoints < 3) {
+        // Nothing valid to undo
+        return;
+      }
+      pointDelta = Math.max(pointDelta, -curPoints);
+      threesDelta = Math.max(threesDelta, -curThrees);
+    }
+
+    const batch = writeBatch(db);
+
+    if (existing.exists()) {
+      batch.update(statRef, {
+        points: increment(pointDelta),
+        threesMade: increment(threesDelta),
+      });
+    } else {
+      // First-time create — only on positive sign (negative early-returns above)
+      batch.set(statRef, {
+        gameId,
+        playerId: selectedPlayer,
+        teamId: selectedTeam,
+        points: pointDelta,
+        assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0,
+        threesMade: threesDelta,
+      });
+    }
+
+    const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
+    batch.update(gameRef, { [scoreField]: increment(pointDelta) });
 
     await batch.commit();
   };
@@ -239,7 +288,7 @@ export default function GameMesa() {
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => bumpStat('points', 1)} className="btn-stat">+1 PT</button>
               <button onClick={() => bumpStat('points', 2)} className="btn-stat">+2 PT</button>
-              <button onClick={() => bumpStat('points', 3)} className="btn-stat">+3 PT</button>
+              <button onClick={() => bumpThreePointer(1)} className="btn-stat">+3 PT</button>
               <button onClick={() => bumpStat('assists', 1)} className="btn-stat bg-blue-700 hover:bg-blue-800">AST</button>
               <button onClick={() => bumpStat('rebounds', 1)} className="btn-stat bg-green-700 hover:bg-green-800">REB</button>
               <button onClick={() => bumpStat('blocks', 1)} className="btn-stat bg-purple-700 hover:bg-purple-800">BLK</button>
@@ -256,13 +305,20 @@ export default function GameMesa() {
             {/* Deshacer row — una fila dedicada para revertir cada stat */}
             <div className="mt-3 pt-3 border-t border-gray-200">
               <div className="text-xs text-gray-500 mb-2 font-semibold">Deshacer:</div>
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 <button
                   onClick={() => bumpStat('points', -1)}
                   className="btn-stat bg-gray-500 hover:bg-gray-600 text-xs py-2"
-                  title="Restar 1 punto"
+                  title="Restar 1 punto (tiro libre)"
                 >
                   −1 PT
+                </button>
+                <button
+                  onClick={() => bumpThreePointer(-1)}
+                  className="btn-stat bg-gray-500 hover:bg-gray-600 text-xs py-2"
+                  title="Restar 1 triple (−3 puntos y −1 al contador de triples)"
+                >
+                  −3 PT
                 </button>
                 <button
                   onClick={() => bumpStat('assists', -1)}
@@ -299,8 +355,9 @@ export default function GameMesa() {
               const s = playerStat(selectedPlayer);
               if (!s) return <div className="text-xs text-gray-500 mt-2">Sin stats todavía</div>;
               return (
-                <div className="mt-3 text-sm grid grid-cols-6 gap-2 text-center">
+                <div className="mt-3 text-sm grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
                   <div><div className="font-bold">{s.points}</div><div className="text-xs text-gray-500">PTS</div></div>
+                  <div><div className="font-bold">{s.threesMade || 0}</div><div className="text-xs text-gray-500">3PT</div></div>
                   <div><div className="font-bold">{s.assists}</div><div className="text-xs text-gray-500">AST</div></div>
                   <div><div className="font-bold">{s.rebounds}</div><div className="text-xs text-gray-500">REB</div></div>
                   <div><div className="font-bold">{s.blocks}</div><div className="text-xs text-gray-500">BLK</div></div>

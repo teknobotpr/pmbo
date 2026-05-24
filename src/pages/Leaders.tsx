@@ -39,6 +39,7 @@ export default function Leaders() {
 
   const categories: { key: keyof PlayerGameStats; label: string; emoji: string }[] = [
     { key: 'points', label: 'Puntos', emoji: '🎯' },
+    { key: 'threesMade', label: 'Triples (3PT)', emoji: '🔥' },
     { key: 'assists', label: 'Asistencias', emoji: '🤝' },
     { key: 'rebounds', label: 'Rebotes', emoji: '🏀' },
     { key: 'blocks', label: 'Bloqueos', emoji: '🛡️' },
