@@ -18,6 +18,12 @@ export default function GameMesa() {
   const [stats, setStats] = useState<PlayerGameStats[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<TeamId | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; tone: 'ok' | 'warn' | 'err' } | null>(null);
+
+  const showToast = (msg: string, tone: 'ok' | 'warn' | 'err' = 'ok') => {
+    setToast({ msg, tone });
+    window.setTimeout(() => setToast(null), 2200);
+  };
 
   useEffect(() => {
     if (!gameId) return;
@@ -58,7 +64,10 @@ export default function GameMesa() {
   // For negative amounts (deshacer), reads current value first and clamps to 0
   // so we never go negative.
   const bumpStat = async (statKey: StatKey, amount: number = 1) => {
-    if (!selectedPlayer || !selectedTeam) return;
+    if (!selectedPlayer || !selectedTeam) {
+      showToast('Selecciona un jugador primero', 'warn');
+      return;
+    }
     const player = players.find(p => p.id === selectedPlayer);
     if (!player) return;
 
@@ -74,42 +83,60 @@ export default function GameMesa() {
     if (amount < 0) {
       const current = existing.exists() ? (existing.data()[statKey] as number) || 0 : 0;
       if (current <= 0) {
-        // Nothing to undo — quietly no-op
+        // Nothing to undo — tell the ref *why* it didn't change
+        showToast(`Nada que deshacer en ${statLabel(statKey)} (ya está en 0)`, 'warn');
         return;
       }
       // Don't go below zero
       effectiveAmount = Math.max(amount, -current);
     }
 
-    const batch = writeBatch(db);
+    try {
+      const batch = writeBatch(db);
 
-    if (existing.exists()) {
-      batch.update(statRef, { [statKey]: increment(effectiveAmount) });
-    } else {
-      // First-time create — only reachable when amount > 0 (negative early-returns above)
-      batch.set(statRef, {
-        gameId,
-        playerId: selectedPlayer,
-        teamId: selectedTeam,
-        points: 0, assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0, threesMade: 0,
-        [statKey]: effectiveAmount,
-      });
+      if (existing.exists()) {
+        batch.update(statRef, { [statKey]: increment(effectiveAmount) });
+      } else {
+        // First-time create — only reachable when amount > 0 (negative early-returns above)
+        batch.set(statRef, {
+          gameId,
+          playerId: selectedPlayer,
+          teamId: selectedTeam,
+          points: 0, assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0, threesMade: 0,
+          [statKey]: effectiveAmount,
+        });
+      }
+
+      // Update game score for points — same batch so it cannot drift.
+      // Uses the same clamped effectiveAmount.
+      if (statKey === 'points') {
+        const scoreField = selectedTeam === game!.homeTeamId ? 'homeScore' : 'awayScore';
+        batch.update(gameRef, { [scoreField]: increment(effectiveAmount) });
+      }
+
+      await batch.commit();
+
+      if (amount < 0) {
+        showToast(`Deshecho: ${statLabel(statKey)} ${effectiveAmount}`, 'ok');
+      }
+    } catch (err) {
+      console.error('bumpStat error:', err);
+      showToast('Error: ' + ((err as Error)?.message || 'no se pudo guardar'), 'err');
     }
-
-    // Update game score for points — same batch so it cannot drift.
-    // Uses the same clamped effectiveAmount.
-    if (statKey === 'points') {
-      const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
-      batch.update(gameRef, { [scoreField]: increment(effectiveAmount) });
-    }
-
-    await batch.commit();
   };
+
+  const statLabel = (k: StatKey) => ({
+    points: 'puntos', assists: 'asistencias', rebounds: 'rebotes',
+    blocks: 'bloqueos', steals: 'robos', threesMade: 'triples',
+  }[k] || k);
 
   // Special helper for 3-point shots: increments points by ±3 AND threesMade by ±1 atomically.
   // Also bumps the team score field on the game doc. All in one batch — no drift possible.
   const bumpThreePointer = async (sign: 1 | -1) => {
-    if (!selectedPlayer || !selectedTeam) return;
+    if (!selectedPlayer || !selectedTeam) {
+      showToast('Selecciona un jugador primero', 'warn');
+      return;
+    }
     const statsId = `${gameId}_${selectedPlayer}`;
     const statRef = doc(db, 'playerGameStats', statsId);
     const gameRef = doc(db, 'games', gameId);
@@ -124,6 +151,7 @@ export default function GameMesa() {
       const curThrees = existing.exists() ? (existing.data().threesMade as number) || 0 : 0;
       if (curThrees <= 0 || curPoints < 3) {
         // Nothing valid to undo
+        showToast('Nada que deshacer en triples (ya está en 0)', 'warn');
         return;
       }
       pointDelta = Math.max(pointDelta, -curPoints);
@@ -149,10 +177,16 @@ export default function GameMesa() {
       });
     }
 
-    const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
+    const scoreField = selectedTeam === game!.homeTeamId ? 'homeScore' : 'awayScore';
     batch.update(gameRef, { [scoreField]: increment(pointDelta) });
 
-    await batch.commit();
+    try {
+      await batch.commit();
+      if (sign < 0) showToast(`Deshecho: triple (${pointDelta} pts, ${threesDelta} 3PT)`, 'ok');
+    } catch (err) {
+      console.error('bumpThreePointer error:', err);
+      showToast('Error: ' + ((err as Error)?.message || 'no se pudo guardar'), 'err');
+    }
   };
 
   // Toggle player on court (start/stop minutes)
@@ -197,7 +231,19 @@ export default function GameMesa() {
   const playerStat = (playerId: string) => stats.find(s => s.playerId === playerId);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {toast && (
+        <div
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${
+            toast.tone === 'ok'   ? 'bg-emerald-600' :
+            toast.tone === 'warn' ? 'bg-amber-600'   :
+                                    'bg-red-600'
+          }`}
+          role="status"
+        >
+          {toast.msg}
+        </div>
+      )}
       {/* Score header */}
       <div className="card flex items-center justify-around">
         <div className="text-center">
@@ -305,13 +351,20 @@ export default function GameMesa() {
             {/* Deshacer row — una fila dedicada para revertir cada stat */}
             <div className="mt-3 pt-3 border-t border-gray-200">
               <div className="text-xs text-gray-500 mb-2 font-semibold">Deshacer:</div>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
                 <button
                   onClick={() => bumpStat('points', -1)}
                   className="btn-stat bg-gray-500 hover:bg-gray-600 text-xs py-2"
                   title="Restar 1 punto (tiro libre)"
                 >
                   −1 PT
+                </button>
+                <button
+                  onClick={() => bumpStat('points', -2)}
+                  className="btn-stat bg-gray-500 hover:bg-gray-600 text-xs py-2"
+                  title="Restar 2 puntos (tiro de campo)"
+                >
+                  −2 PT
                 </button>
                 <button
                   onClick={() => bumpThreePointer(-1)}
