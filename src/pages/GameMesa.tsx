@@ -55,6 +55,8 @@ export default function GameMesa() {
   // Uses a Firestore batch so the player stat increment and the team-score
   // increment succeed (or fail) atomically — guarantees standings stay in sync
   // with the sum of per-player points.
+  // For negative amounts (deshacer), reads current value first and clamps to 0
+  // so we never go negative.
   const bumpStat = async (statKey: StatKey, amount: number = 1) => {
     if (!selectedPlayer || !selectedTeam) return;
     const player = players.find(p => p.id === selectedPlayer);
@@ -64,27 +66,41 @@ export default function GameMesa() {
     const statRef = doc(db, 'playerGameStats', statsId);
     const gameRef = doc(db, 'games', gameId);
 
-    // Check if the stats doc already exists so we know whether to setDoc or update
+    // Check current doc — needed for clamp on negatives and to choose set vs update
     const existing = await getDoc(statRef);
+
+    // Clamp negative amounts so we never end up with a sub-zero stat
+    let effectiveAmount = amount;
+    if (amount < 0) {
+      const current = existing.exists() ? (existing.data()[statKey] as number) || 0 : 0;
+      if (current <= 0) {
+        // Nothing to undo — quietly no-op
+        return;
+      }
+      // Don't go below zero
+      effectiveAmount = Math.max(amount, -current);
+    }
 
     const batch = writeBatch(db);
 
     if (existing.exists()) {
-      batch.update(statRef, { [statKey]: increment(amount) });
+      batch.update(statRef, { [statKey]: increment(effectiveAmount) });
     } else {
+      // First-time create — only reachable when amount > 0 (negative early-returns above)
       batch.set(statRef, {
         gameId,
         playerId: selectedPlayer,
         teamId: selectedTeam,
         points: 0, assists: 0, rebounds: 0, blocks: 0, steals: 0, minutesPlayed: 0,
-        [statKey]: amount,
+        [statKey]: effectiveAmount,
       });
     }
 
-    // Update game score for points — same batch so it cannot drift
+    // Update game score for points — same batch so it cannot drift.
+    // Uses the same clamped effectiveAmount.
     if (statKey === 'points') {
       const scoreField = selectedTeam === game.homeTeamId ? 'homeScore' : 'awayScore';
-      batch.update(gameRef, { [scoreField]: increment(amount) });
+      batch.update(gameRef, { [scoreField]: increment(effectiveAmount) });
     }
 
     await batch.commit();
@@ -234,12 +250,49 @@ export default function GameMesa() {
               >
                 {game.onCourtSince?.[selectedPlayer] ? 'BANCA' : 'CANCHA'}
               </button>
-              <button
-                onClick={() => bumpStat('points', -1)}
-                className="btn-stat bg-gray-500 text-sm"
-              >
-                Deshacer 1pt
-              </button>
+              <span /> {/* spacer to keep 3-col grid aligned */}
+            </div>
+
+            {/* Deshacer row — una fila dedicada para revertir cada stat */}
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="text-xs text-gray-500 mb-2 font-semibold">Deshacer:</div>
+              <div className="grid grid-cols-5 gap-2">
+                <button
+                  onClick={() => bumpStat('points', -1)}
+                  className="btn-stat bg-gray-500 hover:bg-gray-600 text-xs py-2"
+                  title="Restar 1 punto"
+                >
+                  −1 PT
+                </button>
+                <button
+                  onClick={() => bumpStat('assists', -1)}
+                  className="btn-stat bg-blue-400 hover:bg-blue-500 text-xs py-2"
+                  title="Restar 1 asistencia"
+                >
+                  − AST
+                </button>
+                <button
+                  onClick={() => bumpStat('rebounds', -1)}
+                  className="btn-stat bg-green-400 hover:bg-green-500 text-xs py-2"
+                  title="Restar 1 rebote"
+                >
+                  − REB
+                </button>
+                <button
+                  onClick={() => bumpStat('blocks', -1)}
+                  className="btn-stat bg-purple-400 hover:bg-purple-500 text-xs py-2"
+                  title="Restar 1 bloqueo"
+                >
+                  − BLK
+                </button>
+                <button
+                  onClick={() => bumpStat('steals', -1)}
+                  className="btn-stat bg-yellow-500 hover:bg-yellow-600 text-xs py-2"
+                  title="Restar 1 robo"
+                >
+                  − STL
+                </button>
+              </div>
             </div>
             {/* Current stats */}
             {(() => {
