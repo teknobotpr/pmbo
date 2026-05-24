@@ -20,6 +20,7 @@ export default function Layout() {
           <nav className="flex items-center gap-1 sm:gap-3 text-sm">
             <NavTab to="/" label="Inicio" />
             <NavTab to="/equipos" label="Equipos" />
+            <NavTab to="/standing" label="Standing" />
             <NavTab to="/lideres" label="Líderes" />
             <NavTab to="/calendario" label="Calendario" />
             {profile?.role && (

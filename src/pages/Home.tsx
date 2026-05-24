@@ -37,7 +37,12 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="grid sm:grid-cols-3 gap-3">
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Link to="/standing" className="card hover:shadow-lg text-center py-6">
+          <div className="text-4xl mb-1">📊</div>
+          <div className="font-semibold">Standing</div>
+          <p className="text-xs text-gray-500">Posiciones y récord</p>
+        </Link>
         <Link to="/calendario" className="card hover:shadow-lg text-center py-6">
           <div className="text-4xl mb-1">📅</div>
           <div className="font-semibold">Calendario</div>

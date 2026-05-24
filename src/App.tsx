@@ -6,6 +6,7 @@ import Teams from './pages/Teams';
 import Team from './pages/Team';
 import Leaders from './pages/Leaders';
 import Schedule from './pages/Schedule';
+import Standings from './pages/Standings';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
 import GameLive from './pages/GameLive';
@@ -21,6 +22,7 @@ function App() {
             <Route path="equipos" element={<Teams />} />
             <Route path="equipos/:teamId" element={<Team />} />
             <Route path="lideres" element={<Leaders />} />
+            <Route path="standing" element={<Standings />} />
             <Route path="calendario" element={<Schedule />} />
             <Route path="login" element={<Login />} />
             <Route path="admin" element={<Admin />} />
