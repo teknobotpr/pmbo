@@ -64,3 +64,12 @@ export interface UserProfile {
   displayName: string;
   role: 'referee' | 'admin';
 }
+
+// Live stream config (single doc in Firestore: settings/liveStream)
+export interface LiveStreamConfig {
+  enabled: boolean;
+  platform: 'youtube' | 'facebook' | 'twitch' | 'custom';
+  url: string;          // URL pegada por el admin
+  title?: string;       // opcional, ej. 'Leñeros vs Buzos'
+  updatedAt?: number;
+}

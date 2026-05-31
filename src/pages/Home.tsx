@@ -1,9 +1,29 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { TEAMS } from '../data/teams';
+import type { LiveStreamConfig } from '../types';
+import LiveStreamPlayer from '../components/LiveStreamPlayer';
 
 export default function Home() {
+  const [liveStream, setLiveStream] = useState<LiveStreamConfig | null>(null);
+
+  useEffect(() => {
+    const u = onSnapshot(
+      doc(db, 'settings', 'liveStream'),
+      (snap) => {
+        if (snap.exists()) setLiveStream(snap.data() as LiveStreamConfig);
+        else setLiveStream(null);
+      },
+      (err) => console.error('liveStream snapshot error:', err),
+    );
+    return () => u();
+  }, []);
+
   return (
     <div className="space-y-8">
+      {liveStream?.enabled && <LiveStreamPlayer cfg={liveStream} />}
       <section className="text-center py-8">
         <div className="text-6xl mb-3">🏀</div>
         <h1 className="text-3xl sm:text-4xl font-bold text-pmbo-dark">

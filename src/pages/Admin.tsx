@@ -8,10 +8,11 @@ import type { Game, Player, PlayerGameStats, TeamId, Venue } from '../types';
 import { fileToResizedDataUrl } from '../utils/image';
 import { parseLatLng } from '../utils/maps';
 import VenueMapThumb from '../components/VenueMapThumb';
+import LiveStreamAdmin from './admin/LiveStreamAdmin';
 
 export default function Admin() {
   const { user, loading } = useAuth();
-  const [tab, setTab] = useState<'players' | 'venues' | 'games' | 'audit'>('games');
+  const [tab, setTab] = useState<'players' | 'venues' | 'games' | 'audit' | 'live'>('games');
 
   if (loading) return <div>Cargando...</div>;
   if (!user) return <Navigate to="/login" replace />;
@@ -23,11 +24,13 @@ export default function Admin() {
         <TabBtn active={tab === 'games'} onClick={() => setTab('games')} label="Partidos" />
         <TabBtn active={tab === 'players'} onClick={() => setTab('players')} label="Jugadores" />
         <TabBtn active={tab === 'venues'} onClick={() => setTab('venues')} label="Canchas" />
+        <TabBtn active={tab === 'live'} onClick={() => setTab('live')} label="🔴 En Vivo" />
         <TabBtn active={tab === 'audit'} onClick={() => setTab('audit')} label="Auditoría" />
       </div>
       {tab === 'games' && <GamesAdmin />}
       {tab === 'players' && <PlayersAdmin />}
       {tab === 'venues' && <VenuesAdmin />}
+      {tab === 'live' && <LiveStreamAdmin />}
       {tab === 'audit' && <AuditAdmin />}
     </div>
   );
