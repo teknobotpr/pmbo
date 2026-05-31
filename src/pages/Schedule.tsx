@@ -50,25 +50,25 @@ export default function Schedule() {
               });
               return (
                 <div key={g.id} className="card hover:shadow-lg">
-                  <Link to={`/partido/${g.id}`} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="text-sm text-gray-500 w-16">{time}</div>
-                      <div className="flex items-center gap-2 flex-1">
-                        <TeamBadge team={home} score={g.status !== 'scheduled' ? g.homeScore : undefined} />
-                        <span className="text-gray-400 text-xs">vs</span>
-                        <TeamBadge team={away} score={g.status !== 'scheduled' ? g.awayScore : undefined} />
-                      </div>
-                    </div>
-                    <div className="text-right">
+                  <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
+                    <div className="truncate">{venue?.name || ''}</div>
+                    <div className="shrink-0 ml-2">
                       {g.status === 'live' && (
-                        <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded animate-pulse">
+                        <span className="bg-red-500 text-white px-2 py-0.5 rounded animate-pulse">
                           EN VIVO
                         </span>
                       )}
                       {g.status === 'finished' && (
-                        <span className="text-xs text-gray-400">FINAL</span>
+                        <span className="text-gray-400">FINAL</span>
                       )}
-                      <div className="text-xs text-gray-500">{venue?.name || ''}</div>
+                    </div>
+                  </div>
+                  <Link to={`/partido/${g.id}`} className="flex items-center gap-3">
+                    <div className="text-sm text-gray-500 w-16 shrink-0">{time}</div>
+                    <div className="flex items-center gap-2 flex-1">
+                      <TeamBadge team={home} score={g.status !== 'scheduled' ? g.homeScore : undefined} />
+                      <span className="text-gray-400 text-xs">vs</span>
+                      <TeamBadge team={away} score={g.status !== 'scheduled' ? g.awayScore : undefined} />
                     </div>
                   </Link>
                   {venue?.lat !== undefined && venue?.lng !== undefined && (
