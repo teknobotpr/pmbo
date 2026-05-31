@@ -23,6 +23,10 @@ export interface Venue {
   id: string;
   name: string;
   address?: string;
+  /** Latitude in decimal degrees (e.g. 18.0716). Optional. */
+  lat?: number;
+  /** Longitude in decimal degrees (e.g. -66.9624). Optional. */
+  lng?: number;
 }
 
 export interface Game {

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, deleteField, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from 'firebase/firestore';
 import { Link, Navigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TEAMS, TEAMS_BY_ID } from '../data/teams';
 import type { Game, Player, PlayerGameStats, TeamId, Venue } from '../types';
 import { fileToResizedDataUrl } from '../utils/image';
+import { parseLatLng } from '../utils/maps';
+import VenueMapThumb from '../components/VenueMapThumb';
 
 export default function Admin() {
   const { user, loading } = useAuth();
@@ -215,6 +217,7 @@ function VenuesAdmin() {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [coords, setCoords] = useState('');
 
   useEffect(() => {
     return onSnapshot(collection(db, 'venues'), snap =>
@@ -222,15 +225,42 @@ function VenuesAdmin() {
     );
   }, []);
 
+  // Best-effort: if coords field is empty, try parsing from the address.
+  const parsedFromCoords = parseLatLng(coords);
+  const parsedFromAddress = parsedFromCoords ? null : parseLatLng(address);
+  const newLatLng = parsedFromCoords ?? parsedFromAddress;
+
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    await addDoc(collection(db, 'venues'), { name: name.trim(), address: address.trim() });
-    setName(''); setAddress('');
+    const payload: Omit<Venue, 'id'> = {
+      name: name.trim(),
+      address: address.trim(),
+      ...(newLatLng ? { lat: newLatLng.lat, lng: newLatLng.lng } : {}),
+    };
+    await addDoc(collection(db, 'venues'), payload);
+    setName(''); setAddress(''); setCoords('');
   };
 
   const remove = async (id: string) => {
     if (confirm('¿Eliminar esta cancha?')) await deleteDoc(doc(db, 'venues', id));
+  };
+
+  const updateVenueCoords = async (id: string, raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      await updateDoc(doc(db, 'venues', id), {
+        lat: deleteField(),
+        lng: deleteField(),
+      });
+      return;
+    }
+    const ll = parseLatLng(trimmed);
+    if (!ll) {
+      alert('No reconozco esas coordenadas. Usa "18.0716, -66.9624" o pega un link de Google Maps (no shortlinks).');
+      return;
+    }
+    await updateDoc(doc(db, 'venues', id), { lat: ll.lat, lng: ll.lng });
   };
 
   return (
@@ -249,23 +279,92 @@ function VenuesAdmin() {
           onChange={e => setAddress(e.target.value)}
           className="border rounded p-2"
         />
+        <input
+          placeholder='Coords: "18.0716, -66.9624" o link de Maps'
+          value={coords}
+          onChange={e => setCoords(e.target.value)}
+          className="border rounded p-2 sm:col-span-2"
+        />
         <button type="submit" className="btn-primary">Añadir</button>
+        {newLatLng && (
+          <div className="sm:col-span-3 text-xs text-gray-500">
+            📍 Detectado: {newLatLng.lat.toFixed(5)}, {newLatLng.lng.toFixed(5)}{' '}
+            {parsedFromAddress && !parsedFromCoords && '(del campo Dirección)'}
+          </div>
+        )}
       </form>
       <div className="card">
         <ul className="divide-y text-sm">
           {venues.map(v => (
-            <li key={v.id} className="py-2 flex justify-between">
-              <div>
-                <div className="font-medium">{v.name}</div>
-                <div className="text-xs text-gray-500">{v.address}</div>
-              </div>
-              <button onClick={() => remove(v.id)} className="text-red-500 text-xs hover:underline">eliminar</button>
-            </li>
+            <VenueRow key={v.id} venue={v} onRemove={() => remove(v.id)} onUpdateCoords={(c) => updateVenueCoords(v.id, c)} />
           ))}
           {venues.length === 0 && <li className="text-gray-400 italic py-2">sin canchas aún</li>}
         </ul>
       </div>
     </div>
+  );
+}
+
+function VenueRow({ venue, onRemove, onUpdateCoords }: {
+  venue: Venue;
+  onRemove: () => void;
+  onUpdateCoords: (coords: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(
+    venue.lat !== undefined && venue.lng !== undefined
+      ? `${venue.lat}, ${venue.lng}`
+      : ''
+  );
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onUpdateCoords(draft);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <li className="py-3 flex flex-col sm:flex-row sm:justify-between gap-3">
+      <div className="flex gap-3 min-w-0 flex-1">
+        {venue.lat !== undefined && venue.lng !== undefined && (
+          <VenueMapThumb lat={venue.lat} lng={venue.lng} width={200} height={140} zoom={16} className="shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">{venue.name}</div>
+          <div className="text-xs text-gray-500 break-words">{venue.address}</div>
+          {editing ? (
+            <div className="mt-2 flex flex-wrap gap-2 items-center">
+              <input
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                placeholder='lat, lng o link de Maps'
+                className="border rounded p-1 text-xs flex-1 min-w-[180px]"
+              />
+              <button type="button" onClick={save} disabled={saving} className="btn-primary text-xs px-2 py-1">
+                {saving ? '...' : 'Guardar'}
+              </button>
+              <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:underline">
+                cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="mt-1 text-xs text-blue-600 hover:underline"
+            >
+              {venue.lat !== undefined ? 'editar coords' : '📍 añadir coords'}
+            </button>
+          )}
+        </div>
+      </div>
+      <button onClick={onRemove} className="text-red-500 text-xs hover:underline self-start sm:self-center shrink-0">eliminar</button>
+    </li>
   );
 }
 

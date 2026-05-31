@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { TEAMS_BY_ID } from '../data/teams';
 import type { Game, Venue } from '../types';
+import VenueMapThumb from '../components/VenueMapThumb';
 
 export default function Schedule() {
   const [games, setGames] = useState<Game[]>([]);
@@ -48,31 +49,44 @@ export default function Schedule() {
                 hour: 'numeric', minute: '2-digit'
               });
               return (
-                <Link
-                  key={g.id}
-                  to={`/partido/${g.id}`}
-                  className="card hover:shadow-lg flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="text-sm text-gray-500 w-16">{time}</div>
-                    <div className="flex items-center gap-2 flex-1">
-                      <TeamBadge team={home} score={g.status !== 'scheduled' ? g.homeScore : undefined} />
-                      <span className="text-gray-400 text-xs">vs</span>
-                      <TeamBadge team={away} score={g.status !== 'scheduled' ? g.awayScore : undefined} />
+                <div key={g.id} className="card hover:shadow-lg">
+                  <Link to={`/partido/${g.id}`} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="text-sm text-gray-500 w-16">{time}</div>
+                      <div className="flex items-center gap-2 flex-1">
+                        <TeamBadge team={home} score={g.status !== 'scheduled' ? g.homeScore : undefined} />
+                        <span className="text-gray-400 text-xs">vs</span>
+                        <TeamBadge team={away} score={g.status !== 'scheduled' ? g.awayScore : undefined} />
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    {g.status === 'live' && (
-                      <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded animate-pulse">
-                        EN VIVO
-                      </span>
-                    )}
-                    {g.status === 'finished' && (
-                      <span className="text-xs text-gray-400">FINAL</span>
-                    )}
-                    <div className="text-xs text-gray-500">{venue?.name || ''}</div>
-                  </div>
-                </Link>
+                    <div className="text-right">
+                      {g.status === 'live' && (
+                        <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded animate-pulse">
+                          EN VIVO
+                        </span>
+                      )}
+                      {g.status === 'finished' && (
+                        <span className="text-xs text-gray-400">FINAL</span>
+                      )}
+                      <div className="text-xs text-gray-500">{venue?.name || ''}</div>
+                    </div>
+                  </Link>
+                  {venue?.lat !== undefined && venue?.lng !== undefined && (
+                    <div className="mt-2">
+                      <VenueMapThumb
+                        lat={venue.lat}
+                        lng={venue.lng}
+                        width={280}
+                        height={140}
+                        zoom={16}
+                        label={`Abrir ${venue.name} en Maps`}
+                      />
+                      {venue.address && (
+                        <div className="text-xs text-gray-500 mt-1">📍 {venue.address}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
