@@ -115,6 +115,19 @@ function PlayersAdmin() {
     }
   };
 
+  const renamePlayer = async (player: Player) => {
+    const next = prompt('Nuevo nombre del jugador:', player.name);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === player.name) return;
+    try {
+      await updateDoc(doc(db, 'players', player.id), { name: trimmed });
+    } catch (err) {
+      console.error(err);
+      alert('No pude actualizar el nombre.');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <form onSubmit={add} className="card grid grid-cols-1 sm:grid-cols-4 gap-2">
@@ -195,6 +208,12 @@ function PlayersAdmin() {
                       {p.photoUrl && (
                         <button onClick={() => removePhoto(p)} className="text-xs text-gray-500 hover:underline">quitar</button>
                       )}
+                      <button
+                        onClick={() => renamePlayer(p)}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        editar
+                      </button>
                       <button
                         onClick={() => remove(p.id)}
                         className="text-red-500 text-xs hover:underline"
