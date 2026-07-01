@@ -29,6 +29,8 @@ export interface Venue {
   lng?: number;
 }
 
+export type GamePhase = 'regular' | 'quarterfinal' | 'semifinal' | 'final';
+
 export interface Game {
   id: string;
   homeTeamId: TeamId;
@@ -42,6 +44,8 @@ export interface Game {
   minutesPlayed?: Record<string, number>;
   // Last time each player's minutes started counting (when on court)
   onCourtSince?: Record<string, number>;
+  /** Game phase: regular season or playoff round. Defaults to 'regular'. */
+  phase?: GamePhase;
 }
 
 export interface PlayerGameStats {

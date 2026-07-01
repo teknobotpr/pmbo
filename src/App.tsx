@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import GameLive from './pages/GameLive';
 import GameMesa from './pages/GameMesa';
+import Playoffs from './pages/Playoffs';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
             <Route path="equipos/:teamId" element={<Team />} />
             <Route path="lideres" element={<Leaders />} />
             <Route path="standing" element={<Standings />} />
+            <Route path="playoffs" element={<Playoffs />} />
             <Route path="calendario" element={<Schedule />} />
             <Route path="login" element={<Login />} />
             <Route path="admin" element={<Admin />} />

@@ -6,6 +6,7 @@ const NAV_LINKS: { to: string; label: string; icon: string }[] = [
   { to: '/', label: 'Inicio', icon: '🏠' },
   { to: '/equipos', label: 'Equipos', icon: '🏀' },
   { to: '/standing', label: 'Standing', icon: '📊' },
+  { to: '/playoffs', label: 'Playoffs', icon: '🏆' },
   { to: '/lideres', label: 'Líderes', icon: '⭐' },
   { to: '/calendario', label: 'Calendario', icon: '📅' },
 ];

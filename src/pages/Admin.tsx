@@ -4,7 +4,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TEAMS, TEAMS_BY_ID } from '../data/teams';
-import type { Game, Player, PlayerGameStats, TeamId, Venue } from '../types';
+import type { Game, GamePhase, Player, PlayerGameStats, TeamId, Venue } from '../types';
 import { fileToResizedDataUrl } from '../utils/image';
 import { parseLatLng } from '../utils/maps';
 import VenueMapThumb from '../components/VenueMapThumb';
@@ -390,6 +390,92 @@ function VenueRow({ venue, onRemove, onUpdateCoords }: {
   );
 }
 
+const PHASE_LABELS: Record<string, string> = {
+  regular: 'Temporada Regular',
+  quarterfinal: 'Cuartos de Final',
+  semifinal: 'Semifinal',
+  final: 'Gran Final',
+};
+
+const PHASE_EMOJI: Record<string, string> = {
+  regular: '🏀',
+  quarterfinal: '🏀',
+  semifinal: '🔥',
+  final: '👑',
+};
+
+function PlayoffGamesSection({ games, venues }: { games: Game[]; venues: Venue[] }) {
+  const playoffGames = games.filter(g => g.phase && g.phase !== 'regular');
+  if (playoffGames.length === 0) return null;
+
+  const byPhase = {
+    quarterfinal: playoffGames.filter(g => g.phase === 'quarterfinal'),
+    semifinal: playoffGames.filter(g => g.phase === 'semifinal'),
+    final: playoffGames.filter(g => g.phase === 'final'),
+  };
+
+  const remove = async (id: string) => {
+    if (confirm('¿Eliminar este partido?')) await deleteDoc(doc(db, 'games', id));
+  };
+
+  return (
+    <div className="space-y-4">
+      {(['quarterfinal', 'semifinal', 'final'] as const).map(phase => {
+        const phaseGames = byPhase[phase];
+        if (phaseGames.length === 0) return null;
+        return (
+          <details key={phase} className="card" open>
+            <summary className="font-bold cursor-pointer text-sm">
+              {PHASE_EMOJI[phase]} {PHASE_LABELS[phase]} ({phaseGames.length})
+            </summary>
+            <div className="space-y-2 mt-3">
+              {phaseGames.map(g => {
+                const h = TEAMS_BY_ID[g.homeTeamId];
+                const a = TEAMS_BY_ID[g.awayTeamId];
+                const v = venues.find(x => x.id === g.venueId);
+                return (
+                  <div key={g.id} className="flex justify-between items-center border-t border-gray-100 pt-2 mt-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{h?.name} vs {a?.name}</span>
+                        {g.status === 'live' && (
+                          <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded animate-pulse">EN VIVO</span>
+                        )}
+                        {g.status === 'finished' && (
+                          <span className="text-xs text-gray-400">
+                            {g.homeScore} - {g.awayScore}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(g.scheduledAt).toLocaleString('es-PR')} · {v?.name}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {g.status !== 'finished' ? (
+                        <Link to={`/partido/${g.id}/mesa`} className="btn-primary text-xs py-1">
+                          Mesa
+                        </Link>
+                      ) : (
+                        <Link to={`/partido/${g.id}`} className="btn-secondary text-xs py-1">
+                          Ver
+                        </Link>
+                      )}
+                      <button onClick={() => remove(g.id)} className="text-red-500 text-xs hover:underline">
+                        eliminar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
 function GamesAdmin() {
   const [games, setGames] = useState<Game[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
@@ -397,6 +483,7 @@ function GamesAdmin() {
   const [away, setAway] = useState<TeamId>('buzos');
   const [venueId, setVenueId] = useState('');
   const [datetime, setDatetime] = useState('');
+  const [phase, setPhase] = useState<GamePhase>('regular');
 
   useEffect(() => {
     const u1 = onSnapshot(query(collection(db, 'games'), orderBy('scheduledAt', 'asc')), snap =>
@@ -421,6 +508,7 @@ function GamesAdmin() {
       status: 'scheduled',
       homeScore: 0,
       awayScore: 0,
+      phase,
     });
     setDatetime('');
   };
@@ -442,6 +530,16 @@ function GamesAdmin() {
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           {venues.length === 0 && <option value="">— Crea una cancha primero —</option>}
         </select>
+        <select
+          value={phase}
+          onChange={e => setPhase(e.target.value as GamePhase)}
+          className="border rounded p-2 col-span-2"
+        >
+          <option value="regular">🏀 Temporada Regular</option>
+          <option value="quarterfinal">🏀 Cuartos de Final</option>
+          <option value="semifinal">🔥 Semifinal</option>
+          <option value="final">👑 Final</option>
+        </select>
         <input
           type="datetime-local"
           value={datetime}
@@ -450,38 +548,45 @@ function GamesAdmin() {
           required
         />
         <button type="submit" className="btn-primary col-span-2" disabled={home === away}>
-          Programar partido
+          Programar partido{phase !== 'regular' ? ` (${PHASE_LABELS[phase] ?? phase})` : ''}
         </button>
       </form>
-      <div className="space-y-2">
-        {games.map(g => {
-          const h = TEAMS_BY_ID[g.homeTeamId];
-          const a = TEAMS_BY_ID[g.awayTeamId];
-          const v = venues.find(x => x.id === g.venueId);
-          return (
-            <div key={g.id} className="card flex justify-between items-center">
-              <div>
-                <div className="font-medium">{h?.name} vs {a?.name}</div>
-                <div className="text-xs text-gray-500">
-                  {new Date(g.scheduledAt).toLocaleString('es-PR')} · {v?.name}
+
+      {/* Playoff games section */}
+      <PlayoffGamesSection games={games} venues={venues} />
+
+      {/* Regular season games */}
+      <details className="card" open>
+        <summary className="font-bold cursor-pointer text-sm">🏀 Temporada Regular ({games.filter(g => !g.phase || g.phase === 'regular').length})</summary>
+        <div className="space-y-2 mt-3">
+          {games.filter(g => !g.phase || g.phase === 'regular').map(g => {
+            const h = TEAMS_BY_ID[g.homeTeamId];
+            const a = TEAMS_BY_ID[g.awayTeamId];
+            const v = venues.find(x => x.id === g.venueId);
+            return (
+              <div key={g.id} className="flex justify-between items-center border-t border-gray-100 pt-2 mt-2">
+                <div>
+                  <div className="font-medium text-sm">{h?.name} vs {a?.name}</div>
+                  <div className="text-xs text-gray-500">
+                    {new Date(g.scheduledAt).toLocaleString('es-PR')} · {v?.name}
+                  </div>
                 </div>
-                <div className="text-xs">
-                  Estado: <span className="font-semibold">{g.status}</span>
+                <div className="flex gap-2">
+                  <Link to={`/partido/${g.id}/mesa`} className="btn-primary text-xs py-1">
+                    Mesa
+                  </Link>
+                  <button onClick={() => remove(g.id)} className="text-red-500 text-xs hover:underline">
+                    eliminar
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Link to={`/partido/${g.id}/mesa`} className="btn-primary text-sm">
-                  Mesa
-                </Link>
-                <button onClick={() => remove(g.id)} className="text-red-500 text-xs hover:underline">
-                  eliminar
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {games.length === 0 && <p className="text-gray-500 text-sm">No hay partidos programados.</p>}
-      </div>
+            );
+          })}
+          {games.filter(g => !g.phase || g.phase === 'regular').length === 0 && (
+            <p className="text-gray-400 text-sm italic py-2">Sin partidos de temporada regular.</p>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
