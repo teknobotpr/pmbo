@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { TEAMS_BY_ID } from '../data/teams';
-import type { Player, PlayerGameStats } from '../types';
+import type { Game, Player, PlayerGameStats } from '../types';
 
 interface LeaderRow {
   player: Player;
@@ -10,9 +10,13 @@ interface LeaderRow {
   perGame: number;
 }
 
+type Mode = 'regular' | 'playoffs';
+
 export default function Leaders() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [stats, setStats] = useState<PlayerGameStats[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
+  const [mode, setMode] = useState<Mode>('regular');
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'players'), snap =>
@@ -21,13 +25,32 @@ export default function Leaders() {
     const u2 = onSnapshot(collection(db, 'playerGameStats'), snap =>
       setStats(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<PlayerGameStats, 'id'>) })))
     );
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(collection(db, 'games'), snap =>
+      setGames(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Game, 'id'>) })))
+    );
+    return () => { u1(); u2(); u3(); };
   }, []);
+
+  // Filter stats by mode based on game phase
+  const filteredStats = useMemo(() => {
+    const gameById = Object.fromEntries(games.map(g => [g.id, g]));
+    return stats.filter(s => {
+      const g = gameById[s.gameId];
+      if (!g) return false;
+      const isPlayoff = g.phase && g.phase !== 'regular';
+      return mode === 'playoffs' ? isPlayoff : !isPlayoff;
+    });
+  }, [stats, games, mode]);
+
+  const playoffGameCount = useMemo(
+    () => games.filter(g => g.phase && g.phase !== 'regular').length,
+    [games]
+  );
 
   const buildLeaders = (key: keyof PlayerGameStats): LeaderRow[] => {
     return players
       .map(p => {
-        const playerStats = stats.filter(s => s.playerId === p.id);
+        const playerStats = filteredStats.filter(s => s.playerId === p.id);
         const total = playerStats.reduce((a, s) => a + ((s[key] as number) || 0), 0);
         const games = playerStats.length || 1;
         return { player: p, total, perGame: total / games };
@@ -49,7 +72,37 @@ export default function Leaders() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">🏆 Líderes del torneo</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold">
+          🏆 Líderes {mode === 'playoffs' ? 'de Playoffs' : 'del torneo'}
+        </h1>
+        <div className="flex gap-2 text-sm">
+          <button
+            onClick={() => setMode('regular')}
+            className={`px-3 py-1 rounded font-medium ${
+              mode === 'regular' ? 'bg-pmbo-primary text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+          >
+            🏀 Temporada Regular
+          </button>
+          <button
+            onClick={() => setMode('playoffs')}
+            disabled={playoffGameCount === 0}
+            className={`px-3 py-1 rounded font-medium ${
+              mode === 'playoffs' ? 'bg-pmbo-primary text-white' :
+              playoffGameCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
+              'bg-gray-200 text-gray-700'
+            }`}
+          >
+            🏆 Playoffs
+          </button>
+        </div>
+      </div>
+
+      {mode === 'playoffs' && playoffGameCount === 0 && (
+        <p className="text-gray-500 text-sm">Aún no hay partidos de playoff registrados.</p>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-4">
         {categories.map(cat => (
           <div key={cat.key} className="card">

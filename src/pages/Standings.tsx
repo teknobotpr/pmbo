@@ -25,9 +25,12 @@ interface IntegrityIssue {
   diff: number;          // playerSum - gameScore
 }
 
+type StandingMode = 'regular' | 'playoffs';
+
 export default function Standings() {
   const [games, setGames] = useState<Game[]>([]);
   const [stats, setStats] = useState<PlayerGameStats[]>([]);
+  const [mode, setMode] = useState<StandingMode>('regular');
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'games'), snap =>
@@ -38,6 +41,11 @@ export default function Standings() {
     );
     return () => { u1(); u2(); };
   }, []);
+
+  const playoffGameCount = useMemo(
+    () => games.filter(g => g.phase && g.phase !== 'regular').length,
+    [games]
+  );
 
   const rows: StandingRow[] = useMemo(() => {
     // Init one row per team
@@ -55,9 +63,12 @@ export default function Standings() {
       };
     }
 
-    // Only count finished games
+    // Only count finished games filtered by mode (regular vs playoffs)
     for (const g of games) {
       if (g.status !== 'finished') continue;
+      const isPlayoff = g.phase && g.phase !== 'regular';
+      if (mode === 'playoffs' && !isPlayoff) continue;
+      if (mode === 'regular' && isPlayoff) continue;
       const home = map[g.homeTeamId];
       const away = map[g.awayTeamId];
       if (!home || !away) continue;
@@ -92,7 +103,7 @@ export default function Standings() {
       if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
       return TEAMS_BY_ID[a.teamId].name.localeCompare(TEAMS_BY_ID[b.teamId].name);
     });
-  }, [games]);
+  }, [games, mode]);
 
   const anyPlayed = rows.some(r => r.played > 0);
 
@@ -104,6 +115,9 @@ export default function Standings() {
     const issues: IntegrityIssue[] = [];
     for (const g of games) {
       if (g.status !== 'finished') continue;
+      const isPlayoff = g.phase && g.phase !== 'regular';
+      if (mode === 'playoffs' && !isPlayoff) continue;
+      if (mode === 'regular' && isPlayoff) continue;
       const gameStats = stats.filter(s => s.gameId === g.id);
       const homeSum = gameStats
         .filter(s => s.teamId === g.homeTeamId)
@@ -133,15 +147,35 @@ export default function Standings() {
       }
     }
     return issues;
-  }, [games, stats]);
+  }, [games, stats, mode]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">🏆 Standing</h1>
-        <span className="text-xs text-gray-500">
-          {games.filter(g => g.status === 'finished').length} partido(s) jugado(s)
-        </span>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold">
+          🏆 Standing {mode === 'playoffs' ? 'Playoffs' : 'Temporada Regular'}
+        </h1>
+        <div className="flex gap-2 text-sm">
+          <button
+            onClick={() => setMode('regular')}
+            className={`px-3 py-1 rounded font-medium ${
+              mode === 'regular' ? 'bg-pmbo-primary text-white' : 'bg-gray-200 text-gray-700'
+            }`}
+          >
+            🏀 Regular
+          </button>
+          <button
+            onClick={() => setMode('playoffs')}
+            disabled={playoffGameCount === 0}
+            className={`px-3 py-1 rounded font-medium ${
+              mode === 'playoffs' ? 'bg-pmbo-primary text-white' :
+              playoffGameCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
+              'bg-gray-200 text-gray-700'
+            }`}
+          >
+            🏆 Playoffs
+          </button>
+        </div>
       </div>
 
       {!anyPlayed && (
